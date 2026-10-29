@@ -1,0 +1,4 @@
+# Secrets and raw data must never be committed.
+.secrets/env
+data/
+.DS_Store
