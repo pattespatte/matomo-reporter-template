@@ -15,7 +15,8 @@
 // report-common.mjs). --pdf forces it, --no-pdf and non-terminal stdin skip
 // it. The PDF omits everything wrapped in <span class="internal"> - internal
 // notes pointing at docs/how-to.md that make no sense outside the project -
-// and is compressed with Ghostscript when available.
+// and is written as a tagged (accessible) PDF; Ghostscript compression only
+// applies when it keeps those tags intact.
 //
 // Shared atoms, styles and the PDF pipeline live in report-common.mjs; this
 // script defines the audit report's data, sections and assembly. The wider
@@ -120,7 +121,7 @@ const statusTable = (rows) => {
         const bad = /^[45]\d\d$/.test(r.label);
         return `
     <tr${bad ? ' class="bad"' : ''}>
-      <td class="path">${esc(r.label)}</td>
+      <th scope="row" class="path">${esc(r.label)}</th>
       <td class="barcell">${barCell(r.value, max)}</td>
       <td class="num">${fmt.format(r.value)}</td>
       <td class="num">${share(r.value, total)}</td>
@@ -328,6 +329,7 @@ const html = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Underlag till tillgänglighetsgranskning för ${esc(domain)} - Matomo-analys ${esc(periodTxt)}">
 <title>Underlag till tillgänglighetsgranskning – ${esc(domain)}</title>
 <style>${baseCss}</style>
 </head>
@@ -338,6 +340,7 @@ const html = `<!DOCTYPE html>
   <h1>${esc(domain)}</h1>
   <p class="meta">Period: ${esc(periodTxt)} · Källa: Matomo · Rapport genererad ${esc(generated)}</p>
 </header>
+<main id="main-content">
 ${
   noData
     ? notice('<p><strong>Inga data hittades i mappen data.</strong> Kör <code>./scripts/pull_audit.sh</code> först.<span class="internal"> Guiden <code>docs/how-to.md</code> beskriver stegen.</span></p>')
@@ -404,6 +407,7 @@ ${kpiGrid(kpis)}
   </ul>
 </section>
 
+</main>
 <footer>
   <p>Automatgenererad av <code>build-report-audit.mjs</code>. Underlaget visar aggregerad trafik och ska läsas tillsammans med granskningens övriga material.</p>
 </footer>
@@ -445,8 +449,19 @@ if (pdfFlag !== null) {
 
 if (wantPdf) {
   try {
-    const { pdfPath, bytes, compressed } = writePdf(outFile, html);
-    console.log(`ok: ${pdfPath} (${Math.round(bytes / 1024)} kB, docs references omitted${compressed ? ', Ghostscript-compressed' : ''})`);
+    const { pdfPath, bytes, compressed, tagged, lang, title } = writePdf(outFile, html);
+    const traits = [
+      `${Math.round(bytes / 1024)} kB`,
+      'docs references omitted',
+      ...(compressed ? ['Ghostscript-compressed'] : []),
+      tagged ? 'tagged' : 'WARNING: NOT TAGGED',
+      ...(lang ? [`lang ${lang}`] : []),
+      ...(title ? [`title "${title}"`] : []),
+    ];
+    console.log(`ok: ${pdfPath} (${traits.join(', ')})`);
+    if (!tagged) {
+      console.error(`WARNING: ${pdfPath} has no structure tree - update the Chromium-based browser (tagged output needs a reasonably current one).`);
+    }
   } catch (err) {
     console.error(`ERROR writing PDF: ${err.message}`);
     process.exit(1);

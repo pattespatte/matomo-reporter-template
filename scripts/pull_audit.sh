@@ -207,7 +207,7 @@ fetch browsers DevicesDetection.getBrowsers
 fetch resolutions Resolution.getResolution
 fetch languages UserLanguage.getLanguage
 
-echo "== colour scheme & http status =="
+echo "== color scheme & http status =="
 if [[ -n "${MATOMO_THEME_DIMENSION:-}" ]]; then
   fetch theme_dimension CustomDimensions.getCustomDimension "idDimension=${MATOMO_THEME_DIMENSION}"
 else

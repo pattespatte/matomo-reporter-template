@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import readline from 'node:readline/promises';
+import { inflateSync } from 'node:zlib';
 
 // --- Formatting helpers --------------------------------------------------------
 
@@ -88,7 +89,7 @@ export const uniqVisitors = (summary, summaryMonth, period) =>
   (isFullMonth(period) && summaryMonth ? summaryMonth.nb_uniq_visitors : undefined) ??
   0;
 
-// --- Labels and colours ----------------------------------------------------------
+// --- Labels and colors ----------------------------------------------------------
 
 export const DONUT_COLORS = ['#2f6bb0', '#2e8b7a', '#c98a1b', '#7a8694', '#9a5f8f', '#b0556d'];
 
@@ -136,7 +137,7 @@ export const rankTable = (rows, total, opts = {}) => {
         (r, i) => `
     <tr>
       <td class="num muted">${i + 1}</td>
-      <td class="path">${esc(r.label)}</td>
+      <th scope="row" class="path">${esc(r.label)}</th>
       <td class="barcell">${barCell(r.value, max)}</td>
       <td class="num">${fmt.format(r.value)}</td>
       <td class="num">${share(r.value, total)}</td>
@@ -162,7 +163,7 @@ export const simpleTable = (rows, total, labelHead, valueHead, caption) => {
       .map(
         (r) => `
     <tr>
-      <td class="path">${esc(r.label)}</td>
+      <th scope="row" class="path">${esc(r.label)}</th>
       <td class="num">${fmt.format(r.value)}</td>
       <td class="num">${share(r.value, total)}</td>
     </tr>`
@@ -172,32 +173,45 @@ export const simpleTable = (rows, total, labelHead, valueHead, caption) => {
 </table>`;
 };
 
+// Every chart instance needs unique <title>/<desc> ids: a page can hold
+// several charts (the traffic overview renders three donuts) and duplicate
+// ids would make their aria-labelledby references ambiguous.
+let chartSeq = 0;
+
 export const donut = (rows) => {
   const total = rows.reduce((s, r) => s + r.value, 0);
   if (total <= 0) return '<p class="muted">Inga data.</p>';
+  const uid = `donut-${++chartSeq}`;
   const R = 52;
   const C = 2 * Math.PI * R;
   let acc = 0;
   const segs = rows
     .map((r, i) => {
       const frac = r.value / total;
-      const seg = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${DONUT_COLORS[i % DONUT_COLORS.length]}" stroke-width="24" stroke-dasharray="${(frac * C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-acc * C).toFixed(2)}" transform="rotate(-90 70 70)"></circle>`;
+      const pct = Math.round(frac * 1000) / 10;
+      const seg = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${DONUT_COLORS[i % DONUT_COLORS.length]}" stroke-width="24" stroke-dasharray="${(frac * C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-acc * C).toFixed(2)}" transform="rotate(-90 70 70)" role="img" aria-label="${esc(r.label)}: ${fmt.format(r.value)} (${pct.toString().replace('.', ',')} %)"></circle>`;
       acc += frac;
       return seg;
     })
     .join('');
+  // The center figures live outside the SVG as plain HTML: they repeat what
+  // <title> already says, so they stay out of the accessibility tree, and
+  // contrast tools can resolve their background (SVG graphics defeat that).
   return `
 <div class="donut-wrap">
-  <svg viewBox="0 0 140 140" width="180" height="180" aria-hidden="true" focusable="false">
-    ${segs}
-    <text x="70" y="66" text-anchor="middle" class="donut-n">${fmt.format(total)}</text>
-    <text x="70" y="86" text-anchor="middle" class="donut-l">besök</text>
-  </svg>
+  <div class="donut-box">
+    <svg viewBox="0 0 140 140" width="180" height="180" role="group" aria-labelledby="${uid}-title" aria-describedby="${uid}-desc" focusable="false">
+      <title id="${uid}-title">Fördelning av ${fmt.format(total)} besök</title>
+      <desc id="${uid}-desc">Fördelning mellan ${rows.map((r) => r.label).join(', ')}</desc>
+      ${segs}
+    </svg>
+    <p class="donut-center" aria-hidden="true"><span class="donut-n">${fmt.format(total)}</span><span class="donut-l">besök</span></p>
+  </div>
   <ul class="legend">
     ${rows
       .map(
         (r, i) =>
-          `<li><span class="dot" style="background:${DONUT_COLORS[i % DONUT_COLORS.length]}" aria-hidden="true"></span>${esc(r.label)} <span class="muted">· ${fmt.format(r.value)} (${share(r.value, total)})</span></li>`
+          `<li><span class="dot" style="background:${DONUT_COLORS[i % DONUT_COLORS.length]}" aria-hidden="true"></span><span>${esc(r.label)} <span class="muted">· ${fmt.format(r.value)} (${share(r.value, total)})</span></span></li>`
       )
       .join('')}
   </ul>
@@ -228,6 +242,7 @@ export const barList = (rows) => {
 // accessible. labelEvery thins out x-axis labels on dense series.
 export const barChart = (rows, opts = {}) => {
   const { labelEvery = 1, caption = '' } = opts;
+  const uid = `barchart-${++chartSeq}`;
   const data = rows.filter((r) => r && typeof r.label === 'string');
   if (!data.length || data.every((r) => !(r.value > 0))) return '<p class="muted">Inga data.</p>';
   const max = Math.max(...data.map((r) => r.value), 1);
@@ -235,14 +250,19 @@ export const barChart = (rows, opts = {}) => {
   const W = 960;
   const H = 240;
   const baseline = H - 26;
-  const top = 12;
+  // The max label gets its own lane above the plot area: inside it, a tall
+  // first bar could run into the label and wreck both legibility and the
+  // contrast between the two.
+  const top = 26;
   const bw = W / data.length;
   const bars = data
     .map((r, i) => {
       const h = Math.max(((r.value ?? 0) / max) * (baseline - top), 0.75);
       const x = (i * bw + bw * 0.12).toFixed(1);
       const w = (bw * 0.76).toFixed(1);
-      return `<rect x="${x}" y="${(baseline - h).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" rx="2"></rect>`;
+      const label = esc(r.label);
+      const val = fmt.format(r.value ?? 0);
+      return `<rect x="${x}" y="${(baseline - h).toFixed(1)}" width="${w}" height="${h.toFixed(1)}" rx="2" role="img" aria-label="${label}: ${val}"></rect>`;
     })
     .join('');
   const labels = data
@@ -255,12 +275,16 @@ export const barChart = (rows, opts = {}) => {
   return `
 <div class="chart-wrap">
   <p class="sr-only">${esc(caption)}${caption ? '. ' : ''}Högst värde: ${esc(peak.label)} med ${fmt.format(peak.value)}.</p>
-  <svg viewBox="0 0 ${W} ${H}" role="img" aria-hidden="true" focusable="false" class="barchart">
-    <line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" class="chart-axis"></line>
-    <text x="4" y="${top + 2}" class="chart-max">${fmt.format(max)}</text>
-    ${bars}
-    ${labels}
-  </svg>
+  <div class="chart-box">
+    <svg viewBox="0 0 ${W} ${H}" role="group" aria-labelledby="${uid}-title" aria-describedby="${uid}-desc" focusable="false" class="barchart">
+      <title id="${uid}-title">${esc(caption || 'Stapeldiagram')}</title>
+      <desc id="${uid}-desc">${esc(caption)} Högst värde är ${esc(peak.label)} med ${fmt.format(peak.value)}.</desc>
+      <line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" class="chart-axis"></line>
+      ${bars}
+      ${labels}
+    </svg>
+    <span class="chart-max" aria-hidden="true">${fmt.format(max)}</span>
+  </div>
 </div>`;
 };
 
@@ -301,17 +325,24 @@ table{width:100%;border-collapse:collapse;margin:6px 0 4px;font-size:.94rem;font
 th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
 thead th{color:var(--muted);font-size:.8rem;font-weight:600;border-bottom:2px solid var(--line)}
 th.num,td.num{text-align:right;white-space:nowrap}
-td.path{word-break:break-word;min-width:16ch}
+/* Row headers are th (scope=row) but must look like the data cells around them. */
+tbody th{font-weight:400}
+th.path,td.path{word-break:break-word;min-width:16ch}
 .barhead,.barcell{width:26%}
 .bar{height:8px;border-radius:4px;background:#e8edf3;overflow:hidden}
 .bar span{display:block;height:100%;border-radius:4px;background:var(--bar)}
-tr.bad td.path{color:#8c3a3a;font-weight:600}
-.donut-wrap{display:flex;gap:26px;align-items:center;flex-wrap:wrap;margin:8px 0 4px}
-.legend{list-style:none;margin:0;padding:0;font-size:.95rem}
-.legend li{margin:4px 0}
+tr.bad .path{color:#8c3a3a;font-weight:600}
+  .donut-wrap{display:flex;gap:26px;align-items:center;flex-wrap:nowrap;margin:8px 0 4px}
+  .donut-box{position:relative;flex:0 0 auto}
+  .donut-wrap svg{width:180px;height:180px;max-width:180px;display:block}
+  .donut-center{position:absolute;inset:0;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+  /* The explicit white backgrounds let contrast tools resolve these texts
+     against a color instead of the SVG graphics underneath them. */
+  .donut-center span{background:#fff;padding:0 4px}
+  .legend{list-style:none;margin:0;padding:0;font-size:.95rem;flex:1 1 auto;min-width:0}
 .dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:8px}
-.donut-n{font-size:20px;font-weight:650;fill:#1c2b39}
-.donut-l{font-size:11px;fill:#5a6a7a}
+.donut-n{font-size:20px;font-weight:650;line-height:1.2;color:#1c2b39}
+.donut-l{font-size:11px;color:#5a6a7a}
 .duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:6px 34px}
 .duo h3{margin-top:18px}
 .barlist{list-style:none;margin:14px 0 6px;padding:0}
@@ -349,10 +380,11 @@ code{background:#eef1f5;border-radius:5px;padding:1px 6px;font-size:.9em}
 
 export const chartCss = `
 .chart-wrap{margin:8px 0 4px}
+.chart-box{position:relative}
 .barchart{display:block;width:100%;height:auto}
 .barchart rect{fill:var(--bar)}
 .barchart text{font-size:11px;fill:#5a6a7a}
-.barchart .chart-max{font-size:12px}
+.chart-box .chart-max{position:absolute;top:0;left:4px;font-size:12px;line-height:1;color:#5a6a7a;background:#fff;padding:2px 4px}
 .barchart .chart-axis{stroke:#dde3ea}
 @media print{
   .chart-wrap{break-inside:avoid}
@@ -376,7 +408,7 @@ export const listAvailableSlugs = (base) => {
 };
 
 // "all" builds every configured site: this script is re-run once per site
-// config so per-site behaviour (data checks, warnings, PDF handling) stays
+// config so per-site behavior (data checks, warnings, PDF handling) stays
 // identical to a single build; the PDF question is asked once here and the
 // answer forwarded to every site.
 export async function runAllSites(scriptPath, base, pdfFlag, interactive) {
@@ -454,6 +486,59 @@ function findGs() {
   return candidates.find((c) => existsSync(c)) ?? null;
 }
 
+// Read the accessibility-relevant markers out of a finished PDF: whether a
+// structure tree is present (i.e. the PDF is tagged), the document language
+// and title. Dictionaries can hide inside compressed object streams, so
+// every stream is inflated and scanned too. Zero dependencies.
+export function inspectPdf(pdfPath) {
+  const raw = readFileSync(pdfPath).toString('latin1');
+  const chunks = [raw];
+  const re = /stream\r?\n/g;
+  for (let m; (m = re.exec(raw)); ) {
+    const start = m.index + m[0].length;
+    const end = raw.indexOf('endstream', start);
+    if (end < 0) break;
+    try {
+      chunks.push(inflateSync(Buffer.from(raw.slice(start, end), 'latin1')).toString('latin1'));
+    } catch {
+      // not a flate stream (image data, fonts) - nothing to scan there
+    }
+  }
+  const hay = chunks.join('\n');
+  // Strings arrive as UTF-16BE hex (Chrome's choice) or as a literal with
+  // escaped parens; both encodings are decoded here.
+  const str = (name) => {
+    const hex = hay.match(new RegExp(`/${name}\\s*<([0-9A-Fa-f\\s]+)>`));
+    if (hex) {
+      try {
+        const bytes = Buffer.from(hex[1].replace(/\s+/g, ''), 'hex');
+        const text =
+          bytes[0] === 0xfe && bytes[1] === 0xff
+            ? bytes.subarray(2).swap16().toString('utf16le')
+            : bytes.toString('latin1');
+        return text.replace(/\0+$/, '');
+      } catch {
+        return '';
+      }
+    }
+    const lit = hay.match(new RegExp(`/${name}\\s*\\(((?:\\\\.|[^\\\\)])*)\\)`));
+    return lit ? lit[1].replace(/\\([()\\])/g, '$1') : '';
+  };
+  return {
+    tagged: hay.includes('/StructTreeRoot') && /\/Marked\s+true/.test(hay),
+    lang: str('Lang'),
+    title: str('Title'),
+  };
+}
+
+const isTaggedPdf = (path) => {
+  try {
+    return inspectPdf(path).tagged;
+  } catch {
+    return false;
+  }
+};
+
 // The PDF is the shareable variant of a report: identical to the HTML
 // except that internal notes (span.internal) are hidden, and - purely to
 // keep the file small - it uses Helvetica Neue instead of the system font.
@@ -461,7 +546,7 @@ function findGs() {
 // to dozens of Type 3 glyph programs (~400 kB for a short report); any
 // ordinary TrueType embeds as a couple of compact subsets instead.
 const PDF_ONLY_CSS =
-  '<style>.internal{display:none !important}body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}</style>';
+  '<style>.internal{display:none !important}body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}main,header,footer,section{display:block}</style>';
 
 export function writePdf(htmlPath, html, pdfOnlyCss = PDF_ONLY_CSS) {
   const browser = findBrowser();
@@ -474,18 +559,35 @@ export function writePdf(htmlPath, html, pdfOnlyCss = PDF_ONLY_CSS) {
   const workDir = mkdtempSync(join(tmpdir(), 'matomo-report-'));
   try {
     const src = join(workDir, 'report.html');
-    writeFileSync(src, html.replace('</head>', `${pdfOnlyCss}\n</head>`));
+    let pdfHtml = html.replace('</head>', `${pdfOnlyCss}\n</head>`);
+    // Language of the whole document: the builders always set lang on the
+    // html element; this fallback covers callers that omit it. Chrome copies
+    // it into the tagged PDF's /Lang entry.
+    if (!/<html\b[^>]*\blang\s*=/i.test(pdfHtml)) {
+      pdfHtml = pdfHtml.replace('<html', '<html lang="sv"');
+    }
+    writeFileSync(src, pdfHtml);
     const run = spawnSync(
       browser,
       [
-        '--headless',
+        '--headless=new',
         '--disable-gpu',
         '--no-pdf-header-footer',
+        '--disable-dev-shm-usage',
+        '--disable-setuid-sandbox',
+        '--no-sandbox',
+        // Tagged (accessible) PDF with a structure tree. Recent Chrome tags
+        // every print-to-pdf by default (verified with Chrome 157); these
+        // flags keep tagging on for older Chromium builds where it had to be
+        // requested - both spellings have existed, and unknown switches are
+        // ignored, so passing both is safe.
+        '--generate-tagged-pdf',
+        '--export-tagged-pdf',
         `--user-data-dir=${join(workDir, 'profile')}`,
         `--print-to-pdf=${pdfPath}`,
         pathToFileURL(src).href,
       ],
-      { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', timeout: 120000 }
+      { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', timeout: 180000 }
     );
     if (run.error) throw new Error(`could not run ${browser}: ${run.error.message}`);
     if (run.status !== 0) {
@@ -499,6 +601,7 @@ export function writePdf(htmlPath, html, pdfOnlyCss = PDF_ONLY_CSS) {
       throw new Error(`output is not a PDF (only ${bytes} bytes)`);
     }
     let compressed = false;
+    const tagged = isTaggedPdf(pdfPath);
     const gs = findGs();
     if (gs && bytes > 100 * 1024) {
       const shrunk = join(workDir, 'shrunk.pdf');
@@ -516,8 +619,12 @@ export function writePdf(htmlPath, html, pdfOnlyCss = PDF_ONLY_CSS) {
         existsSync(shrunk) &&
         statSync(shrunk).size > 512 &&
         readFileSync(shrunk).subarray(0, 4).toString('latin1') === '%PDF';
-      // Replace only when it is really smaller and still has every page.
-      if (gsOk && statSync(shrunk).size < bytes) {
+      // Replace only when the copy is really smaller, still has every page
+      // and - the accessibility contract - still carries the structure tree:
+      // Ghostscript's pdfwrite re-creates the document and drops the tags
+      // (verified with gs 10.08), so a tagged PDF is never swapped for an
+      // untagged one, even if that costs the kilobytes.
+      if (gsOk && statSync(shrunk).size < bytes && (!tagged || isTaggedPdf(shrunk))) {
         // gs SAFER mode blocks PostScript file access unless permitted.
         const pages = (f) =>
           parseInt(
@@ -536,7 +643,7 @@ export function writePdf(htmlPath, html, pdfOnlyCss = PDF_ONLY_CSS) {
         }
       }
     }
-    return { pdfPath, bytes, compressed };
+    return { pdfPath, bytes, compressed, ...inspectPdf(pdfPath) };
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

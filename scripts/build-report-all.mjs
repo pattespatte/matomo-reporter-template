@@ -113,7 +113,7 @@ const dailyRows =
         .map((d) => ({ label: shortDay(d), value: Number(dailyRaw[d]?.nb_visits) || 0 }))
     : [];
 
-// Hour of day: 24 rows labelled "00"-"23"; keep numeric order.
+// Hour of day: 24 rows labeled "00"-"23"; keep numeric order.
 const hourRows = rowsOf('local_time')
   .map((r) => ({ label: String(r.label), value: r.nb_visits ?? 0 }))
   .sort((a, b) => Number(a.label) - Number(b.label));
@@ -223,7 +223,7 @@ const freqTable = freqTotal > 0
       .map(
         (g) => `
     <tr>
-      <td>${esc(g.label)}</td>
+      <th scope="row">${esc(g.label)}</th>
       <td class="num">${fmt.format(g.visits)}</td>
       <td class="num">${share(g.visits, freqTotal)}</td>
       <td class="num">${g.ppv != null ? Number(g.ppv).toFixed(1).replace('.', ',') : '–'}</td>
@@ -254,7 +254,7 @@ const exitTable = (rows) => {
         (r, i) => `
     <tr>
       <td class="num muted">${i + 1}</td>
-      <td class="path">${esc(r.label)}</td>
+      <th scope="row" class="path">${esc(r.label)}</th>
       <td class="barcell">${barCell(r.value, max)}</td>
       <td class="num">${fmt.format(r.value)}</td>
       <td class="num">${esc(r.rate)}</td>
@@ -276,15 +276,14 @@ const methodItems = [
 
 // --- Assemble -----------------------------------------------------------------
 
-const css = baseCss + chartCss;
-
 const html = `<!DOCTYPE html>
 <html lang="sv">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Trafiköversikt för ${esc(domain)} - Matomo-analys ${esc(periodTxt)}">
 <title>Trafiköversikt – ${esc(domain)}</title>
-<style>${css}</style>
+<style>${baseCss}${chartCss}</style>
 </head>
 <body>
 <div class="wrap">
@@ -293,6 +292,7 @@ const html = `<!DOCTYPE html>
   <h1>${esc(domain)}</h1>
   <p class="meta">Period: ${esc(periodTxt)} · Källa: Matomo · Rapport genererad ${esc(generated)}</p>
 </header>
+<main id="main-content">
 ${
   noData
     ? notice('<p><strong>Inga data hittades i mappen data.</strong> Kör <code>./scripts/pull_all.sh</code> först.<span class="internal"> Guiden <code>docs/how-to.md</code> beskriver stegen.</span></p>')
@@ -429,8 +429,9 @@ ${kpiGrid(kpis)}
   </ul>
 </section>
 
+</main>
 <footer>
-  <p>Automatgenererad av <code>build-report-all.mjs</code>. Trafiköversikten visar aggregerad trafik och kompletteras av underlaget till tillgänglighetsgranskningen.</p>
+  <p>Automatgenererad av <code>build-report-all.mjs</code>.</p>
 </footer>
 </div>
 </body>
@@ -470,8 +471,19 @@ if (pdfFlag !== null) {
 
 if (wantPdf) {
   try {
-    const { pdfPath, bytes, compressed } = writePdf(outFile, html);
-    console.log(`ok: ${pdfPath} (${Math.round(bytes / 1024)} kB, docs references omitted${compressed ? ', Ghostscript-compressed' : ''})`);
+    const { pdfPath, bytes, compressed, tagged, lang, title } = writePdf(outFile, html);
+    const traits = [
+      `${Math.round(bytes / 1024)} kB`,
+      'docs references omitted',
+      ...(compressed ? ['Ghostscript-compressed'] : []),
+      tagged ? 'tagged' : 'WARNING: NOT TAGGED',
+      ...(lang ? [`lang ${lang}`] : []),
+      ...(title ? [`title "${title}"`] : []),
+    ];
+    console.log(`ok: ${pdfPath} (${traits.join(', ')})`);
+    if (!tagged) {
+      console.error(`WARNING: ${pdfPath} has no structure tree - update the Chromium-based browser (tagged output needs a reasonably current one).`);
+    }
   } catch (err) {
     console.error(`ERROR writing PDF: ${err.message}`);
     process.exit(1);
