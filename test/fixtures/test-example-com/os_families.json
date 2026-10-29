@@ -1,0 +1,22 @@
+[
+  {
+    "label": "Windows",
+    "nb_visits": 2010
+  },
+  {
+    "label": "Mac",
+    "nb_visits": 1240
+  },
+  {
+    "label": "iOS",
+    "nb_visits": 680
+  },
+  {
+    "label": "Android",
+    "nb_visits": 610
+  },
+  {
+    "label": "Linux",
+    "nb_visits": 281
+  }
+]

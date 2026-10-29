@@ -1,0 +1,42 @@
+[
+  {
+    "label": "https://example.com/",
+    "exit_nb_visits": 610,
+    "exit_rate": "12,7 %"
+  },
+  {
+    "label": "https://example.com/tjanster",
+    "exit_nb_visits": 340,
+    "exit_rate": "7,1 %"
+  },
+  {
+    "label": "https://example.com/kontakt",
+    "exit_nb_visits": 210,
+    "exit_rate": "4,4 %"
+  },
+  {
+    "label": "https://example.com/blogg/tillganglighet-2026",
+    "exit_nb_visits": 190,
+    "exit_rate": "3,9 %"
+  },
+  {
+    "label": "https://example.com/priser",
+    "exit_nb_visits": 130,
+    "exit_rate": "2,7 %"
+  },
+  {
+    "label": "https://example.com/blogg",
+    "exit_nb_visits": 110,
+    "exit_rate": "2,3 %"
+  },
+  {
+    "label": "https://example.com/karriar",
+    "exit_nb_visits": 90,
+    "exit_rate": "1,9 %"
+  },
+  {
+    "label": "https://example.com/katalog",
+    "exit_nb_visits": 70,
+    "exit_rate": "1,5 %"
+  }
+]

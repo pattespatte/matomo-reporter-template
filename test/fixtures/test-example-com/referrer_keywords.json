@@ -1,0 +1,18 @@
+[
+  {
+    "label": "not provided",
+    "nb_visits": 1500
+  },
+  {
+    "label": "tillgänglighetsgranskning",
+    "nb_visits": 120
+  },
+  {
+    "label": "matomo rapport",
+    "nb_visits": 60
+  },
+  {
+    "label": "wcag",
+    "nb_visits": 40
+  }
+]

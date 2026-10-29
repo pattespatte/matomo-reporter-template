@@ -1,0 +1,18 @@
+[
+  {
+    "label": "200",
+    "nb_visits": 4590
+  },
+  {
+    "label": "301",
+    "nb_visits": 210
+  },
+  {
+    "label": "404",
+    "nb_visits": 87
+  },
+  {
+    "label": "500",
+    "nb_visits": 12
+  }
+]

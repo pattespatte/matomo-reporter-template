@@ -1,0 +1,18 @@
+[
+  {
+    "label": "Desktop",
+    "nb_visits": 2760
+  },
+  {
+    "label": "Smartphone",
+    "nb_visits": 1580
+  },
+  {
+    "label": "Tablet",
+    "nb_visits": 383
+  },
+  {
+    "label": "Unknown",
+    "nb_visits": 98
+  }
+]

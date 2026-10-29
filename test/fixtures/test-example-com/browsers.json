@@ -1,0 +1,26 @@
+[
+  {
+    "label": "Chrome",
+    "nb_visits": 2610
+  },
+  {
+    "label": "Safari",
+    "nb_visits": 1120
+  },
+  {
+    "label": "Edge",
+    "nb_visits": 510
+  },
+  {
+    "label": "Firefox",
+    "nb_visits": 340
+  },
+  {
+    "label": "Samsung Internet",
+    "nb_visits": 150
+  },
+  {
+    "label": "Opera",
+    "nb_visits": 91
+  }
+]

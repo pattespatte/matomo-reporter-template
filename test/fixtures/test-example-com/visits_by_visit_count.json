@@ -1,0 +1,22 @@
+[
+  {
+    "label": "1 gång",
+    "nb_visits": 2903
+  },
+  {
+    "label": "2 gånger",
+    "nb_visits": 980
+  },
+  {
+    "label": "3-5 gånger",
+    "nb_visits": 620
+  },
+  {
+    "label": "6-10 gånger",
+    "nb_visits": 210
+  },
+  {
+    "label": "Fler än 10 gånger",
+    "nb_visits": 108
+  }
+]

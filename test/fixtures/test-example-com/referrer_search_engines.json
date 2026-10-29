@@ -1,0 +1,14 @@
+[
+  {
+    "label": "Google",
+    "nb_visits": 1980
+  },
+  {
+    "label": "Bing",
+    "nb_visits": 100
+  },
+  {
+    "label": "DuckDuckGo",
+    "nb_visits": 50
+  }
+]

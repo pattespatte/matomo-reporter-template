@@ -1,0 +1,22 @@
+[
+  {
+    "label": "https://example.com/",
+    "entry_nb_visits": 2600
+  },
+  {
+    "label": "https://example.com/tjanster",
+    "entry_nb_visits": 640
+  },
+  {
+    "label": "https://example.com/blogg/tillganglighet-2026",
+    "entry_nb_visits": 380
+  },
+  {
+    "label": "https://example.com/kontakt",
+    "entry_nb_visits": 210
+  },
+  {
+    "label": "https://example.com/priser",
+    "entry_nb_visits": 150
+  }
+]

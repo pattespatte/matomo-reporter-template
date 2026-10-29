@@ -1,0 +1,34 @@
+[
+  {
+    "label": "Sverige",
+    "nb_visits": 3980
+  },
+  {
+    "label": "Norge",
+    "nb_visits": 210
+  },
+  {
+    "label": "Danmark",
+    "nb_visits": 180
+  },
+  {
+    "label": "Finland",
+    "nb_visits": 150
+  },
+  {
+    "label": "Tyskland",
+    "nb_visits": 96
+  },
+  {
+    "label": "USA",
+    "nb_visits": 84
+  },
+  {
+    "label": "Storbritannien",
+    "nb_visits": 61
+  },
+  {
+    "label": "Okänd",
+    "nb_visits": 60
+  }
+]

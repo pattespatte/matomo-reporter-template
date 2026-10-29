@@ -1,0 +1,18 @@
+[
+  {
+    "label": "light",
+    "nb_events": 310
+  },
+  {
+    "label": "dark",
+    "nb_events": 640
+  },
+  {
+    "label": "system",
+    "nb_events": 1200
+  },
+  {
+    "label": "external-link",
+    "nb_events": 55
+  }
+]

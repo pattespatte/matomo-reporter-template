@@ -1,0 +1,30 @@
+[
+  {
+    "label": "Stockholms län [SE-AB], Sverige",
+    "nb_visits": 980
+  },
+  {
+    "label": "Västra Götalands län [SE-O], Sverige",
+    "nb_visits": 720
+  },
+  {
+    "label": "Skåne län [SE-M], Sverige",
+    "nb_visits": 610
+  },
+  {
+    "label": "Uppsala län [SE-C], Sverige",
+    "nb_visits": 210
+  },
+  {
+    "label": "Oslo [NO-03], Norge",
+    "nb_visits": 120
+  },
+  {
+    "label": "Hovedstaden [DK-84], Danmark",
+    "nb_visits": 90
+  },
+  {
+    "label": "Okänd",
+    "nb_visits": 140
+  }
+]

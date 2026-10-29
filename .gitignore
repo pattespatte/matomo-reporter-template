@@ -1,4 +1,15 @@
-# Secrets and raw data must never be committed.
+# Secrets and generated data must never be committed.
 .secrets/env
 data/
+reports/
+
+# OS specific files
 .DS_Store
+
+# Tools
+.AGENTS.md
+.CLAUDE.md
+.claude/
+.clavix/
+.zcode/
+node_modules/

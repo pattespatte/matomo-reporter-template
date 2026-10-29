@@ -1,0 +1,26 @@
+[
+  {
+    "label": "1 sida",
+    "nb_visits": 1610
+  },
+  {
+    "label": "2 sidor",
+    "nb_visits": 1210
+  },
+  {
+    "label": "3 sidor",
+    "nb_visits": 810
+  },
+  {
+    "label": "4 sidor",
+    "nb_visits": 520
+  },
+  {
+    "label": "5 sidor",
+    "nb_visits": 340
+  },
+  {
+    "label": "6 eller flera sidor",
+    "nb_visits": 331
+  }
+]

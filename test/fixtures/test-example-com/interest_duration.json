@@ -1,0 +1,38 @@
+[
+  {
+    "label": "0-10s",
+    "nb_visits": 720
+  },
+  {
+    "label": "11-30s",
+    "nb_visits": 940
+  },
+  {
+    "label": "31-60s",
+    "nb_visits": 810
+  },
+  {
+    "label": "1-2min",
+    "nb_visits": 760
+  },
+  {
+    "label": "3-5min",
+    "nb_visits": 620
+  },
+  {
+    "label": "6-10min",
+    "nb_visits": 410
+  },
+  {
+    "label": "10-15min",
+    "nb_visits": 230
+  },
+  {
+    "label": "16-30min",
+    "nb_visits": 200
+  },
+  {
+    "label": "30min+",
+    "nb_visits": 331
+  }
+]

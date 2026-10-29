@@ -1,0 +1,52 @@
+[
+  {
+    "label": "https://example.com/",
+    "nb_hits": 2210,
+    "nb_visits": 1900
+  },
+  {
+    "label": "https://example.com/tjanster",
+    "nb_hits": 1310,
+    "nb_visits": 1100
+  },
+  {
+    "label": "https://example.com/tjanster/konsult",
+    "nb_hits": 620,
+    "nb_visits": 540
+  },
+  {
+    "label": "https://example.com/om-oss",
+    "nb_hits": 590,
+    "nb_visits": 510
+  },
+  {
+    "label": "https://example.com/kontakt",
+    "nb_hits": 480,
+    "nb_visits": 430
+  },
+  {
+    "label": "https://example.com/blogg",
+    "nb_hits": 420,
+    "nb_visits": 380
+  },
+  {
+    "label": "https://example.com/blogg/tillganglighet-2026",
+    "nb_hits": 380,
+    "nb_visits": 350
+  },
+  {
+    "label": "https://example.com/priser",
+    "nb_hits": 290,
+    "nb_visits": 260
+  },
+  {
+    "label": "https://example.com/karriar",
+    "nb_hits": 180,
+    "nb_visits": 160
+  },
+  {
+    "label": "https://example.com/katalog",
+    "nb_hits": 140,
+    "nb_visits": 120
+  }
+]
