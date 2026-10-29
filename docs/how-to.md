@@ -1,6 +1,6 @@
 # Analytics reports for accessibility audits (Matomo)
 
-Shared tooling for pulling aggregated Matomo analytics per site and building a self-contained HTML report to use as reference when planning and prioritising an accessibility audit (WCAG): which pages to audit first, which devices/browsers to test, and which error pages need attention. Any number of sites are supported – each site is a small config file.
+Shared tooling for pulling aggregated Matomo analytics per site and building a self-contained HTML report to use as reference when planning and prioritizing an accessibility audit (WCAG): which pages to audit first, which devices/browsers to test, and which error pages need attention. Any number of sites are supported – each site is a small config file.
 
 ## Layout
 
@@ -17,6 +17,7 @@ sites/
 ├── config/             # one <slug> file per tracked site (shell syntax, sourced - never run)
 ├── .secrets/           # env.example template; env holds your credentials
 ├── data/               # generated: raw JSON per site in data/<slug>/
+├── test/               # synthetic demo fixtures (no real visitor data)
 └── reports/            # generated: reports/<slug>--<start>_<end>[--all].html/.pdf
 ```
 
@@ -59,11 +60,13 @@ The token needs **view** access. In Matomo 5: Personal settings → Security →
 
 The pull fetches aggregated reports only (summary, pages, titles, entry pages, devices, OS, browsers, resolutions, languages, event names, plus optional custom dimensions). It never fetches visitor-level data (`Live.` API).
 
-The builder produces `reports/<slug>--<start>_<end>.html` – one HTML file with inline CSS and SVG charts. It makes no external requests, works offline, and prints well to PDF. It tolerates missing files and marks the gaps in the report, so you can build even before theme or status tracking is in place. The report itself follows accessibility basics: semantic HTML, `lang="sv"`, table captions, tabular numbers, AA-contrast colors, and every chart paired with a data table.
+The builder produces `reports/<slug>--<start>_<end>.html` – one HTML file with inline CSS and SVG charts. It makes no external requests, works offline, and prints well to PDF. It tolerates missing files and marks the gaps in the report, so you can build even before theme or status tracking is in place. The report itself is built for assistive technology: semantic landmarks and headings, `lang="sv"`, table captions and column plus row headers, tabular numbers, AA-contrast colors, and every chart with an accessible name, description and a data table alongside. Generated reports pass axe-core (WCAG 2.0/2.1 A + AA and best practices) with zero violations.
 
 After writing the HTML, the builder asks in the terminal whether to save the report as PDF as well (`Also save the report as PDF? [Y/n]` – Enter means yes). The PDF is rendered by a Chromium-based browser (Chrome, Chromium, Edge and Brave are found automatically; `CHROME_BIN` points to another one) and lands next to the HTML as `reports/<slug>--<start>_<end>.pdf`. It is the shareable variant: references to this guide (`docs/how-to.md`) are omitted, since they make no sense outside the project. Use `--pdf` to write the PDF without asking and `--no-pdf` to never – when input is not a terminal, no question is asked and no PDF is written.
 
-The PDF is kept small (~100 kB instead of ~400 kB) with two measures: it uses Helvetica Neue instead of the macOS system font (Chrome cannot embed San Francisco as a real font and emits dozens of bulky Type 3 glyph programs), and – when Ghostscript is installed (`brew install ghostscript`) – the file is re-compressed and the embedded font subsets deduplicated. Without Ghostscript the PDF is simply bigger, never wrong.
+The PDF is written as a tagged PDF: Chromium emits a structure tree for screen readers, and the document title and language travel from the HTML `<title>` and `lang` attribute into the PDF metadata. Every build verifies this with a byte-level check and prints it in the ok line (`tagged, lang sv, title "..."`) – a loud warning appears if a PDF ever comes out untagged, for example when the browser is too old to tag its output.
+
+The font swap keeps the file small: the PDF uses Helvetica Neue instead of the macOS system font, because Chrome cannot embed San Francisco as a real font and emits dozens of bulky Type 3 glyph programs, while any ordinary TrueType embeds as a couple of compact subsets. Ghostscript (`brew install ghostscript`) can shrink the file further by re-compressing and deduplicating font subsets, but its output only replaces the original when the accessibility tag structure survives – Ghostscript 10.x drops it, so tagged PDFs are left uncompressed. A somewhat bigger file is preferred over an inaccessible one.
 
 Report sections and their audit use: summary KPIs for context, most visited pages and entry pages to prioritize what to audit first, sections to prioritize between parts of the site, devices/resolutions/browsers/OS/languages to build the test matrix, light/dark mode shares, and 404 pages plus HTTP status distribution for error-page accessibility.
 
@@ -149,7 +152,15 @@ The traffic overview reads aggregated reports only. The visitor-level rows in `d
 
 ## Testing without Matomo
 
-`../tests/run-test.sh` runs the whole chain offline: it starts a local mock of the Matomo API (`../tests/mock-matomo.mjs`) that serves a real fixture, pulls a throwaway site config, builds the report and checks its contents. It also verifies the failure paths (rejected token, empty data dir). Use it after changing the scripts, or to see what a working run looks like before credentials exist.
+`test/fixtures/test-example-com/` holds synthetic demo data (no real visitors). Copy it into `data/` and build – no credentials needed:
+
+```bash
+cp -R test/fixtures/test-example-com data/
+node scripts/build-report-audit.mjs test-example-com --pdf
+node scripts/build-report-all.mjs test-example-com --pdf
+```
+
+The reports land in `reports/`; remove `data/test-example-com` when done. The fixtures also serve as a schema reference for the JSON the pull scripts write.
 
 ## Troubleshooting
 
@@ -160,7 +171,7 @@ The traffic overview reads aggregated reports only. The visitor-level rows in `d
 - **HTTP 500 "Too many failed logins"** – Matomo's brute-force protection has locked the API after repeated failed authentication attempts (every request in a failed pull counts, and earlier failed runs too). **Stop retrying – each new attempt keeps the lockout alive.** Wait for it to clear (typically well under an hour) or ask the Matomo administrator. Meanwhile, check the token in the Matomo UI: Personal settings → Security → Auth tokens lists each token and its expiry – when in doubt, create a fresh dedicated token and replace `MATOMO_TOKEN` in `.secrets/env`. The pull aborts at the first rejected credential, so a bad token costs one request, not twelve.
 - **Unika besökare shows "–"** – Matomo's range reports omit that metric by default. For a report covering exactly one calendar month the pull scripts fetch the month archive instead, where unique visitors are always processed, so the KPI fills in without any Matomo change. For other ranges only the administrator can help: `enable_processing_unique_visitors_range = 1` under `[General]` in Matomo's `config.ini.php`. That is one installation-wide setting, not per site – a single change covers every site in that Matomo. Note that it affects newly archived data; Matomo's own config reference says past reports need the `matomo_archive_*` tables dropped to re-process. Until then, accept visits as the headline metric.
 - **PDF step fails or reports no browser** – the PDF needs a Chromium-based browser; the error lists what was searched. Install Google Chrome (or set `CHROME_BIN` to a Chromium, Edge or Brave binary) and build again, or use `--no-pdf`. The HTML report is always written, PDF failure or not.
-- **PDF is several hundred kB** – Ghostscript is missing, so only the Chromium output lands. `brew install ghostscript` and rebuild; the ok-line says `Ghostscript-compressed` when it ran.
+- **PDF is several hundred kB** – expected for a tagged PDF: Ghostscript compression is skipped whenever it would strip the accessibility tags (Ghostscript 10.x always does), so tagged PDFs keep the Chromium output as is. The ok line reports `tagged` plus title and language for every PDF written.
 - **Theme section says tracking is missing** – `MATOMO_THEME_DIMENSION` is not set in the config, the id is wrong, or the site does not track color scheme yet.
 - **No 404 rows despite known broken links** – the 404 page may not include the tracker, or its title is not in the built-in list nor in `EXTRA_NOT_FOUND_TITLES`.
 - **FAILED list at end of pull** – individual reports that failed are listed by name; the rest still downloaded. Each failed fetch also prints its own `ERROR in <name> …` line while running: a curl message means the host could not be reached (network, TLS, proxy), an HTTP status pinpoints the cause (401 = wrong or revoked token, 404 = wrong `MATOMO_URL`, e.g. a subpath install), and anything else is Matomo's own error message. Re-run, and check plugin availability (e.g. Events) if the same one keeps failing.
