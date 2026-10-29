@@ -75,7 +75,7 @@ The reports land in `reports/`; remove `data/test-example-com` when done. The fi
 - `pull_all.sh <slug|all> [start] [end]` – full set including visitor-level Live rows; handle that data with care
 - `build-report-audit.mjs <slug|all> [--pdf|--no-pdf]` – accessibility-audit reference report
 - `build-report-all.mjs <slug|all> [--pdf|--no-pdf]` – wider traffic overview for the web team
-- `create_audit_reports_for_all_sites.sh` – pull + build every configured site
+- `create_audit_reports_for_all_sites.sh [start] [end] [--pdf|--no-pdf]` – pull + build every configured site in one go (build is skipped when any pull fails)
 
 Reports are single self-contained HTML files (inline CSS and SVG, no external requests) and work offline. The builder optionally renders a tagged (accessible) PDF via a Chromium-based browser; title and language metadata are verified on every build.
 
