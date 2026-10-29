@@ -45,12 +45,15 @@ if [[ "$site_arg" == "all" ]]; then
   (( ${#config_list[@]} )) || { echo "ERROR: no site configs in config/ - nothing to pull" >&2; exit 1; }
   if (( $# >= 2 )); then
     dates=("$1" "$2")
-  elif (( $# == 0 )); then
-    echo "no dates given - using last full month"
-    dates=("$(date -v1d -v-1m +%F)" "$(date -v1d -v-1d +%F)")
-  else
+  elif (( $# > 0 )); then
     echo "ERROR: dates come in pairs - start and end (YYYY-MM-DD)" >&2
     exit 1
+  elif [[ -n "${MATOMO_START:-}" && -n "${MATOMO_END:-}" ]]; then
+    echo "using dates from environment: ${MATOMO_START} to ${MATOMO_END}"
+    dates=("${MATOMO_START}" "${MATOMO_END}")
+  else
+    echo "no dates given - using last full month"
+    dates=("$(date -v1d -v-1m +%F)" "$(date -v1d -v-1d +%F)")
   fi
   failed=()
   for cfg in "${config_list[@]}"; do
