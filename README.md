@@ -2,6 +2,8 @@
 
 Shared tooling for pulling aggregated Matomo analytics per site and building a self-contained HTML report to use as reference when planning and prioritizing an accessibility audit (WCAG): which pages to audit first, which devices/browsers to test, and which error pages need attention.
 
+![test report, example.com](./reports/test-example-com--all--1024px-width.webp)
+
 Aggregated statistics only – no visitor-level data. Any number of sites are supported; each site is a small config file.
 
 ## Layout

@@ -312,7 +312,7 @@ body{margin:0;background:var(--bg);color:var(--ink);
 .masthead{margin:8px 0 20px}
 .kicker{margin:0 0 6px;font-size:.82rem;font-weight:650;letter-spacing:.08em;color:var(--accent-deep)}
 h1{margin:0 0 10px;font-size:clamp(1.6rem,3.5vw,2.3rem);line-height:1.2;color:#132433}
-.meta{margin:0;color:var(--muted);font-size:.95rem}
+.meta{margin:0;color:var(--muted);font-size:.85rem}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:22px 0 6px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
 .kpi .n{font-size:1.7rem;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}

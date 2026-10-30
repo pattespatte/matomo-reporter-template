@@ -1,7 +1,8 @@
 # Secrets and generated data must never be committed.
 .secrets/env
 data/
-reports/
+reports/*
+!reports/test-example-com--all--1024px-width.webp
 
 # OS specific files
 .DS_Store
