@@ -4,6 +4,9 @@ data/
 reports/*
 !reports/test-example-com--all--1024px-width.webp
 
+# Local user settings (copy from settings-example.json).
+settings.json
+
 # OS specific files
 .DS_Store
 

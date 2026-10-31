@@ -105,7 +105,7 @@ fi
 # period.json so the builders know which language the data was pulled in.
 # shellcheck source=/dev/null
 source scripts/read-settings.sh
-: "${REPORT_LANG:=$(settings_get '.language' 'sv')}"
+: "${REPORT_LANG:=$(settings_get '.language' 'en')}"
 case "$REPORT_LANG" in
   en|fr|de|es|sv) ;;
   *) echo "ERROR: REPORT_LANG must be one of: en | fr | de | es | sv (got '${REPORT_LANG}')" >&2; exit 1 ;;

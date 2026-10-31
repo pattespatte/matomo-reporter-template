@@ -25,8 +25,8 @@ const TOP_ROW_DEFAULTS = {
 };
 
 export const defaultSettings = () => ({
-  language: 'sv',
-  paper: 'A4',
+  language: 'en',
+  paper: 'Letter',
   topRows: { ...TOP_ROW_DEFAULTS },
   organization: '',
 });
@@ -136,10 +136,12 @@ export function loadSettings(base) {
 }
 
 // Report language for one build: --lang flag > REPORT_LANG env > the
-// settings.json default > the language the data was pulled with > sv.
-// periodLang comes from data/<slug>/period.json (written by the pull scripts).
+// settings.json default > the language the data was pulled with > en
+// (same defaults as settings-example.json, so a missing file changes
+// nothing). periodLang comes from data/<slug>/period.json (written by
+// the pull scripts).
 export function resolveReportLanguage({ flag, env, settings, periodLang } = {}) {
-  const chosen = [flag, env, settings?.language, periodLang].find((v) => v !== undefined && v !== null && v !== '') ?? 'sv';
+  const chosen = [flag, env, settings?.language, periodLang].find((v) => v !== undefined && v !== null && v !== '') ?? 'en';
   if (!SUPPORTED_LANGUAGES.includes(chosen)) {
     fail(
       `unknown report language "${chosen}" (from ${flag !== undefined && flag !== '' && flag === chosen ? '--lang flag' : 'REPORT_LANG or settings'}). Supported: ${SUPPORTED_LANGUAGES.join(' | ')}`
