@@ -19,24 +19,28 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  fmt, fmtDur, fmtDate, share, esc, hits, sortByValue, safe,
-  makeReadJson, unwrap, unwrapMonth, uniqVisitors,
-  barCell, tableClass, DEVICE_LABELS_SV,
+  fmt, fmtDur, fmtDate, fmtDec1, fmtDateTime, shortDay, share, esc, hits, sortByValue, safe,
+  makeReadJson, unwrap, unwrapMonth, uniqVisitors, useLocale,
+  barCell, tableClass,
   rankTable, simpleTable, donut, barList, barChart, notice, kpiGrid,
   baseCss, chartCss, parseReportArgv, listAvailableSlugs, runAllSites, askPdf, writePdf,
 } from './report-common.mjs';
+import { tr, mapLabel, localeMeta } from './locales/index.mjs';
+import { loadSettings, resolveReportLanguage } from './settings.mjs';
 
 // --- CLI ---------------------------------------------------------------------
 
 const here = dirname(fileURLToPath(import.meta.url));
 const base = join(here, '..');
+const settings = loadSettings(base);
 
-const { slug, unknownFlags, pdfFlag } = parseReportArgv(process.argv.slice(2));
+const { slug, unknownFlags, pdfFlag, langFlag } = parseReportArgv(process.argv.slice(2));
 if (!slug || unknownFlags.length) {
-  console.error('usage: build-report-all.mjs <slug|all> [--pdf|--no-pdf]    (e.g. test-example-com)');
+  console.error('usage: build-report-all.mjs <slug|all> [--pdf|--no-pdf] [--lang=<code>]    (e.g. test-example-com)');
   console.error('  all       build every site in config/ (data must be pulled first)');
   console.error('  --pdf     write reports/<slug>--<start>_<end>--all.pdf without asking');
   console.error('  --no-pdf  never write a PDF (also the default when stdin is not a terminal)');
+  console.error('  --lang    report language (en | fr | de | es | sv); default from settings.json');
   if (unknownFlags.length) console.error(`unknown option: ${unknownFlags.join(' ')}`);
   else {
     const have = listAvailableSlugs(base);
@@ -50,7 +54,7 @@ const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 // --- "all" builds every configured site ------------------------------------------
 
 if (slug === 'all') {
-  await runAllSites(fileURLToPath(import.meta.url), base, pdfFlag, interactive);
+  await runAllSites(fileURLToPath(import.meta.url), base, pdfFlag, interactive, langFlag);
 }
 
 const dataDir = join(base, 'data', slug);
@@ -63,16 +67,16 @@ const outDir = join(base, 'reports');
 
 // --- Tunables -----------------------------------------------------------------
 
-const TOP_PAGES = 15;
-const TOP_ENTRY = 5;
-const TOP_EXIT = 8;
-const TOP_REGIONS = 8;
-const TOP_RESOLUTIONS = 8;
-const TOP_BROWSERS = 8;
-const TOP_BROWSER_VERSIONS = 8;
-const TOP_OS = 6;
-const TOP_OS_VERSIONS = 6;
-const TOP_LANGUAGES = 5;
+const TOP_PAGES = settings.topRows.pages;
+const TOP_ENTRY = settings.topRows.entryPages;
+const TOP_EXIT = settings.topRows.exitPages;
+const TOP_REGIONS = settings.topRows.regions;
+const TOP_RESOLUTIONS = settings.topRows.resolutions;
+const TOP_BROWSERS = settings.topRows.browsers;
+const TOP_BROWSER_VERSIONS = settings.topRows.browserVersions;
+const TOP_OS = settings.topRows.operatingSystems;
+const TOP_OS_VERSIONS = settings.topRows.osVersions;
+const TOP_LANGUAGES = settings.topRows.languages;
 
 // --- Load data ---------------------------------------------------------------
 
@@ -80,6 +84,11 @@ const readJson = makeReadJson(dataDir);
 
 const period = readJson('period') ?? {};
 const domain = typeof period.domain === 'string' && period.domain ? period.domain : slug;
+
+// Report language: --lang flag > REPORT_LANG env > settings.json > the
+// language recorded by the pull in period.json > Swedish. Everything below
+// this line renders through the chosen locale's strings and formatters.
+useLocale(resolveReportLanguage({ flag: langFlag, env: process.env.REPORT_LANG, settings, periodLang: period.language }));
 
 const site = unwrap(readJson('site')) ?? {};
 const summary = unwrap(readJson('visits_summary')) ?? {};
@@ -101,10 +110,6 @@ const returningVisits = frequency.nb_visits_returning ?? 0;
 // Daily series: the period=day summary comes keyed by date (older pulls
 // predate the fetch - the report notices instead of guessing).
 const dailyRaw = readJson('visits_summary_daily');
-const shortDay = (iso) => {
-  const [, m, d] = String(iso).split('-');
-  return `${Number(d)}/${Number(m)}`;
-};
 const dailyRows =
   dailyRaw && !Array.isArray(dailyRaw) && typeof dailyRaw === 'object'
     ? Object.keys(dailyRaw)
@@ -141,7 +146,7 @@ const refCampaigns = rowsOf('referrer_campaigns').map((r) => ({ label: r.label, 
 
 // Devices and software: family level first, versions after.
 const deviceRows = sortByValue(
-  rowsOf('device_types').map((r) => ({ label: DEVICE_LABELS_SV[r.label] ?? (r.label || 'Okänd'), value: r.nb_visits ?? 0 }))
+  rowsOf('device_types').map((r) => ({ label: mapLabel('devices', r.label, r.label || tr('common.deviceUnknown')), value: r.nb_visits ?? 0 }))
 );
 const namedRows = (name) => sortByValue(rowsOf(name).map((r) => ({ label: r.label, value: r.nb_visits ?? 0 })));
 const totalsOf = (rows) => rows.reduce((s, r) => s + r.value, 0);
@@ -152,13 +157,27 @@ const osVersionsAll = namedRows('os_versions');
 const resolutionsAll = namedRows('resolutions');
 const languagesAll = namedRows('languages');
 
-// Pages: entry pages count entrances, exit pages carry their own rate.
+// Pages: entry pages count entrances, exit pages carry their own rate -
+// which Matomo delivers preformatted in the pull's language ("12,7 %").
+// Parse it tolerantly (comma or dot) and re-render in the report language;
+// anything unparseable passes through as-is.
+const formatExitRate = (raw) => {
+  const m = /^\s*([\d.,]+)\s*%\s*$/.exec(String(raw ?? ''));
+  if (!m) return String(raw ?? '–');
+  const num = Number(m[1].replace(',', '.'));
+  if (Number.isNaN(num)) return String(raw);
+  // The reports use a regular space before % everywhere else (donut aria
+  // labels included); the NBSP some locales get from Intl is normalized here.
+  return new Intl.NumberFormat(localeMeta().tag, { style: 'percent', maximumFractionDigits: 1 })
+    .format(num / 100)
+    .replace(/\u00A0|\u202F/g, ' ');
+};
 const pageRows = rowsOf('page_urls');
 const entryList = sortByValue(
   rowsOf('entry_pages').map((r) => ({ label: r.label, value: r.entry_nb_visits ?? r.nb_visits ?? 0 }))
 ).slice(0, TOP_ENTRY);
 const exitRows = sortByValue(
-  rowsOf('exit_pages').map((r) => ({ label: r.label, value: r.exit_nb_visits ?? r.nb_visits ?? 0, rate: r.exit_rate ?? '–' }))
+  rowsOf('exit_pages').map((r) => ({ label: r.label, value: r.exit_nb_visits ?? r.nb_visits ?? 0, rate: formatExitRate(r.exit_rate ?? '–') }))
 ).slice(0, TOP_EXIT);
 
 // --- Section content ------------------------------------------------------------
@@ -172,35 +191,37 @@ const pulled = [
 const noData = !pulled;
 
 const kpis = [
-  { l: 'Besök', v: fmt.format(visits) },
-  { l: 'Unika besökare', v: uniqueVisitors > 0 ? fmt.format(uniqueVisitors) : '–' },
-  { l: 'Sidvisningar', v: fmt.format(totalPageviews) },
-  { l: 'Sidvisningar per besök', v: visits > 0 ? (totalPageviews / visits).toFixed(1).replace('.', ',') : '–' },
-  { l: 'Snitttid per besök', v: summary.avg_time_on_site ? fmtDur(summary.avg_time_on_site) : '–' },
-  { l: 'Nya / återkommande besök', v: newVisits + returningVisits > 0 ? `${fmt.format(newVisits)} / ${fmt.format(returningVisits)}` : '–' },
+  { l: tr('common.kpiVisits'), v: fmt.format(visits) },
+  { l: tr('common.kpiUniqueVisitors'), v: uniqueVisitors > 0 ? fmt.format(uniqueVisitors) : '–' },
+  { l: tr('common.kpiPageviews'), v: fmt.format(totalPageviews) },
+  { l: tr('common.kpiPageviewsPerVisit'), v: visits > 0 ? fmtDec1(totalPageviews / visits) : '–' },
+  { l: tr('common.kpiAvgTime'), v: summary.avg_time_on_site ? fmtDur(summary.avg_time_on_site) : '–' },
+  { l: tr('all.kpiNewReturning'), v: newVisits + returningVisits > 0 ? `${fmt.format(newVisits)} / ${fmt.format(returningVisits)}` : '–' },
 ];
 
 const startTxt = fmtDate(period.start);
 const endTxt = fmtDate(period.end);
-const periodTxt = startTxt && endTxt ? `${startTxt} – ${endTxt}` : 'okänd period';
-const generated = new Date().toLocaleString('sv-SE', { dateStyle: 'long', timeStyle: 'short' });
+const periodTxt = startTxt && endTxt ? `${startTxt} – ${endTxt}` : tr('common.unknownPeriod');
+const generated = fmtDateTime(new Date());
 const siteName = typeof site.name === 'string' && site.name ? site.name : domain;
 
+// The fixed release date of the visits_summary_daily fetch, rendered in the
+// report language inside the "daily data missing" notice.
+const dailySince = fmtDate('2026-10-27');
+
 const trendContent = dailyRows.length
-  ? barChart(dailyRows, { labelEvery: 5, caption: 'Antal besök per dag under perioden' })
-  : notice(
-      '<p><strong>Daglig utveckling saknas.</strong> Filen tillkom i pull_all.sh den 27 oktober 2026 – kör en ny dragning så fylls avsnittet.</p>'
-    );
+  ? barChart(dailyRows, { labelEvery: 5, caption: tr('all.captionDaily') })
+  : notice(`<p>${tr('all.dailyMissingNotice', { date: dailySince })}</p>`);
 
 const freqGroups = [
   {
-    label: 'Nya besök',
+    label: tr('all.newVisits'),
     visits: newVisits,
     ppv: frequency.nb_actions_per_visit_new,
     dur: frequency.avg_time_on_site_new,
   },
   {
-    label: 'Återkommande besök',
+    label: tr('all.returningVisits'),
     visits: returningVisits,
     ppv: frequency.nb_actions_per_visit_returning,
     dur: frequency.avg_time_on_site_returning,
@@ -210,13 +231,13 @@ const freqTotal = newVisits + returningVisits;
 const freqTable = freqTotal > 0
   ? `
 <table>
-  <caption class="sr-only">Nya och återkommande besök, med sidvisningar per besök och snitttid</caption>
+  <caption class="sr-only">${esc(tr('all.captionFrequency'))}</caption>
   <thead><tr>
-    <th scope="col">Grupp</th>
-    <th scope="col" class="num">Besök</th>
-    <th scope="col" class="num">Andel</th>
-    <th scope="col" class="num">Sidor per besök</th>
-    <th scope="col" class="num">Snitttid</th>
+    <th scope="col">${esc(tr('all.headGroup'))}</th>
+    <th scope="col" class="num">${esc(tr('common.headVisits'))}</th>
+    <th scope="col" class="num">${esc(tr('common.shareHead'))}</th>
+    <th scope="col" class="num">${esc(tr('all.headPagesPerVisit'))}</th>
+    <th scope="col" class="num">${esc(tr('all.headAvgTime'))}</th>
   </tr></thead>
   <tbody>
     ${freqGroups
@@ -226,27 +247,27 @@ const freqTable = freqTotal > 0
       <th scope="row">${esc(g.label)}</th>
       <td class="num">${fmt.format(g.visits)}</td>
       <td class="num">${share(g.visits, freqTotal)}</td>
-      <td class="num">${g.ppv != null ? Number(g.ppv).toFixed(1).replace('.', ',') : '–'}</td>
+      <td class="num">${g.ppv != null ? fmtDec1(g.ppv) : '–'}</td>
       <td class="num">${g.dur != null ? fmtDur(g.dur) : '–'}</td>
     </tr>`
       )
       .join('')}
   </tbody>
 </table>`
-  : '<p class="muted">Inga data.</p>';
+  : `<p class="muted">${esc(tr('common.empty'))}</p>`;
 
 const exitTable = (rows) => {
-  if (!rows.length) return '<p class="muted">Inga data.</p>';
+  if (!rows.length) return `<p class="muted">${esc(tr('common.empty'))}</p>`;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return `
 <table${tableClass(rows)}>
-  <caption class="sr-only">Vanligaste utgångssidorna, rangordnade efter utgångsbesök</caption>
+  <caption class="sr-only">${esc(tr('all.captionExitPages'))}</caption>
   <thead><tr>
     <th scope="col" class="num">#</th>
-    <th scope="col">Sida</th>
+    <th scope="col">${esc(tr('common.headPage'))}</th>
     <th scope="col" class="barhead" aria-hidden="true"></th>
-    <th scope="col" class="num">Utgångsbesök</th>
-    <th scope="col" class="num">Utgångsfrekvens</th>
+    <th scope="col" class="num">${esc(tr('all.headExitVisits'))}</th>
+    <th scope="col" class="num">${esc(tr('all.headExitRate'))}</th>
   </tr></thead>
   <tbody>
     ${rows
@@ -266,164 +287,165 @@ const exitTable = (rows) => {
 };
 
 const methodItems = [
-  `Källan är Matomos rapport-API för webbplatsen ${esc(siteName)} (${esc(domain)}). Rapporten bygger endast på aggregerade värden och innehåller inga personuppgifter.`,
-  'Matomo mäter bara det som sker i besökarens webbläsare. Serverfel som gör att sidan inte laddas alls syns därför inte i siffrorna.',
-  ...(uniqueVisitors > 0
-    ? []
-    : ['Antalet unika besökare för en hel period kräver en inställning i Matomo. Saknas värdet beror det på inställningen, inte på att besökare saknas.']),
-  'Geografiska uppgifter bygger på geolokalisering av besökarens nätverksanslutning och är approximativa.',
+  tr('all.methodSource', { site: esc(siteName), domain: esc(domain) }),
+  tr('common.methodBrowserOnly'),
+  ...(uniqueVisitors > 0 ? [] : [tr('common.methodUniqueVisitors')]),
+  tr('all.methodGeography'),
 ];
 
 // --- Assemble -----------------------------------------------------------------
 
+const org = settings.organization;
+const footerTxt = org ? tr('all.footerOrg', { script: 'build-report-all.mjs', org: esc(org) }) : tr('all.footer', { script: 'build-report-all.mjs' });
+
 const html = `<!DOCTYPE html>
-<html lang="sv">
+<html lang="${localeMeta().htmlLang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Trafiköversikt för ${esc(domain)} - Matomo-analys ${esc(periodTxt)}">
-<title>Trafiköversikt – ${esc(domain)}</title>
-<style>${baseCss}${chartCss}</style>
+<meta name="description" content="${esc(tr('all.metaDescription', { domain, period: periodTxt }))}">
+<title>${esc(tr('all.docTitle', { domain }))}</title>
+<style>${baseCss(settings.paper)}${chartCss}</style>
 </head>
 <body>
 <div class="wrap">
 <header class="masthead">
-  <p class="kicker">Trafiköversikt</p>
+  <p class="kicker">${esc(tr('all.kicker'))}</p>
   <h1>${esc(domain)}</h1>
-  <p class="meta">Period: ${esc(periodTxt)} · Källa: Matomo · Rapport genererad ${esc(generated)}</p>
+  <p class="meta">${esc(tr('common.metaLine', { period: periodTxt, generated }))}</p>
 </header>
 <main id="main-content">
 ${
   noData
-    ? notice('<p><strong>Inga data hittades i mappen data.</strong> Kör <code>./scripts/pull_all.sh</code> först.<span class="internal"> Guiden <code>docs/how-to.md</code> beskriver stegen.</span></p>')
+    ? notice(`<p>${tr('common.noDataNotice', { script: 'pull_all.sh' })}</p>`)
     : ''
 }
 ${kpiGrid(kpis)}
 
 <section class="card">
-  <h2>Utveckling över perioden</h2>
-  <p class="lead">Besöken per dag visar hur trafiken har rört sig under perioden, till exempel veckorytm och enstaka toppar.</p>
+  <h2>${esc(tr('all.sectionTrend'))}</h2>
+  <p class="lead">${esc(tr('all.leadTrend'))}</p>
   ${trendContent}
 </section>
 
 <section class="card">
-  <h2>Tid på dygnet</h2>
-  <p class="lead">Besöken fördelade på dygnets timmar, räknat i besökarens lokala tid. Mönstret visar när webbplatsen faktiskt används.</p>
-  ${barChart(hourRows, { labelEvery: 3, caption: 'Antal besök per timme på dygnet' })}
+  <h2>${esc(tr('all.sectionHour'))}</h2>
+  <p class="lead">${esc(tr('all.leadHour'))}</p>
+  ${barChart(hourRows, { labelEvery: 3, caption: tr('all.captionHourly') })}
 </section>
 
 <section class="card">
-  <h2>Nya och återkommande besökare</h2>
-  <p class="lead">Återkommande besökare har besökt webbplatsen tidigare. Jämför grupperna – återkommande besökare läser ofta fler sidor och stannar längre.</p>
+  <h2>${esc(tr('all.sectionVisitors'))}</h2>
+  <p class="lead">${esc(tr('all.leadVisitors'))}</p>
   ${donut([
-    { label: 'Nya besök', value: newVisits },
-    { label: 'Återkommande besök', value: returningVisits },
+    { label: tr('all.newVisits'), value: newVisits },
+    { label: tr('all.returningVisits'), value: returningVisits },
   ])}
   ${freqTable}
 </section>
 
 <section class="card">
-  <h2>Engagemang</h2>
-  <p class="lead">Hur länge besökarna stannar, hur många sidor de ser per besök och hur många gånger de kommer tillbaka.</p>
+  <h2>${esc(tr('all.sectionEngagement'))}</h2>
+  <p class="lead">${esc(tr('all.leadEngagement'))}</p>
   <div class="duo">
     <div>
-      <h3>Besökslängd</h3>
+      <h3>${esc(tr('all.headVisitDuration'))}</h3>
       ${barList(durationRows)}
     </div>
     <div>
-      <h3>Sidor per besök</h3>
+      <h3>${esc(tr('all.headPagesPerVisit'))}</h3>
       ${barList(pagesRows)}
     </div>
     <div>
-      <h3>Antal besök per besökare</h3>
+      <h3>${esc(tr('all.headVisitsPerVisitor'))}</h3>
       ${barList(loyaltyRows)}
     </div>
   </div>
 </section>
 
 <section class="card">
-  <h2>Geografi</h2>
-  <p class="lead">Besökarnas länder och regioner. Uppgifterna bygger på geolokalisering och är approximativa.</p>
+  <h2>${esc(tr('all.sectionGeography'))}</h2>
+  <p class="lead">${esc(tr('all.leadGeography'))}</p>
   <div class="duo">
     <div>
-      <h3>Länder</h3>
-      ${simpleTable(countryRows, totalsOf(countryRows), 'Land', 'Besök', 'Länder, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headCountries'))}</h3>
+      ${simpleTable(countryRows, totalsOf(countryRows), tr('all.headCountry'), tr('common.headVisits'), tr('all.captionCountries'))}
     </div>
     <div>
-      <h3>Regioner</h3>
-      ${simpleTable(regionRows, totalsOf(regionRows), 'Region', 'Besök', 'Regioner, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headRegions'))}</h3>
+      ${simpleTable(regionRows, totalsOf(regionRows), tr('all.headRegion'), tr('common.headVisits'), tr('all.captionRegions'))}
     </div>
   </div>
 </section>
 
 <section class="card">
-  <h2>Trafikkällor</h2>
-  <p class="lead">Hur besökarna hittade till webbplatsen: direkt, via länkar, sök, delade länkar eller kampanjer.</p>
+  <h2>${esc(tr('all.sectionSources'))}</h2>
+  <p class="lead">${esc(tr('all.leadSources'))}</p>
   ${donut(refTypeRows)}
   <div class="duo">
     <div>
-      <h3>Länkande webbplatser</h3>
-      ${simpleTable(refWebsites, totalsOf(refWebsites), 'Webbplats', 'Besök', 'Länkande webbplatser, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headRefWebsites'))}</h3>
+      ${simpleTable(refWebsites, totalsOf(refWebsites), tr('all.headWebsite'), tr('common.headVisits'), tr('all.captionRefWebsites'))}
     </div>
     <div>
-      <h3>Sökmotorer</h3>
-      ${simpleTable(refEngines, totalsOf(refEngines), 'Sökmotor', 'Besök', 'Sökmotorer, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headSearchEngines'))}</h3>
+      ${simpleTable(refEngines, totalsOf(refEngines), tr('all.headSearchEngine'), tr('common.headVisits'), tr('all.captionSearchEngines'))}
     </div>
     <div>
-      <h3>Sökord</h3>
-      ${simpleTable(refKeywords, totalsOf(refKeywords), 'Sökord', 'Besök', 'Sökord, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headKeywords'))}</h3>
+      ${simpleTable(refKeywords, totalsOf(refKeywords), tr('all.headKeywords'), tr('common.headVisits'), tr('all.captionKeywords'))}
     </div>
     <div>
-      <h3>Kampanjer</h3>
-      ${simpleTable(refCampaigns, totalsOf(refCampaigns), 'Kampanj', 'Besök', 'Kampanjer, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headCampaigns'))}</h3>
+      ${simpleTable(refCampaigns, totalsOf(refCampaigns), tr('all.headCampaign'), tr('common.headVisits'), tr('all.captionCampaigns'))}
     </div>
   </div>
 </section>
 
 <section class="card">
-  <h2>Enheter, skärmar och programvara</h2>
-  <p class="lead">Vilka enheter, skärmstorlekar och programversioner besökarna använder. Äldre versioner kan ha begränsat stöd för moderna funktioner.</p>
-  <h3>Enhetstyp</h3>
+  <h2>${esc(tr('common.sectionDevices'))}</h2>
+  <p class="lead">${esc(tr('all.leadDevices'))}</p>
+  <h3>${esc(tr('common.headDeviceTypes'))}</h3>
   ${donut(deviceRows)}
   <div class="duo">
     <div>
-      <h3>Upplösningar</h3>
-      ${simpleTable(resolutionsAll.slice(0, TOP_RESOLUTIONS), totalsOf(resolutionsAll), 'Upplösning', 'Besök', 'Upplösningar, rangordnade efter antal besök')}
+      <h3>${esc(tr('common.headResolutions'))}</h3>
+      ${simpleTable(resolutionsAll.slice(0, TOP_RESOLUTIONS), totalsOf(resolutionsAll), tr('common.headResolution'), tr('common.headVisits'), tr('common.captionResolutions'))}
     </div>
     <div>
-      <h3>Webbläsare</h3>
-      ${simpleTable(browsersAll.slice(0, TOP_BROWSERS), totalsOf(browsersAll), 'Webbläsare', 'Besök', 'Webbläsare, rangordnade efter antal besök')}
+      <h3>${esc(tr('common.headBrowsers'))}</h3>
+      ${simpleTable(browsersAll.slice(0, TOP_BROWSERS), totalsOf(browsersAll), tr('common.headBrowsers'), tr('common.headVisits'), tr('common.captionBrowsers'))}
     </div>
     <div>
-      <h3>Webbläsarversioner</h3>
-      ${simpleTable(browserVersionsAll.slice(0, TOP_BROWSER_VERSIONS), totalsOf(browserVersionsAll), 'Version', 'Besök', 'Webbläsarversioner, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headBrowserVersions'))}</h3>
+      ${simpleTable(browserVersionsAll.slice(0, TOP_BROWSER_VERSIONS), totalsOf(browserVersionsAll), tr('all.headVersion'), tr('common.headVisits'), tr('all.captionBrowserVersions'))}
     </div>
     <div>
-      <h3>Operativsystem</h3>
-      ${simpleTable(osAll.slice(0, TOP_OS), totalsOf(osAll), 'Operativsystem', 'Besök', 'Operativsystem, rangordnade efter antal besök')}
+      <h3>${esc(tr('common.headOperatingSystems'))}</h3>
+      ${simpleTable(osAll.slice(0, TOP_OS), totalsOf(osAll), tr('common.headOperatingSystems'), tr('common.headVisits'), tr('common.captionOperatingSystems'))}
     </div>
     <div>
-      <h3>Operativsystemversioner</h3>
-      ${simpleTable(osVersionsAll.slice(0, TOP_OS_VERSIONS), totalsOf(osVersionsAll), 'Version', 'Besök', 'Operativsystemversioner, rangordnade efter antal besök')}
+      <h3>${esc(tr('all.headOsVersions'))}</h3>
+      ${simpleTable(osVersionsAll.slice(0, TOP_OS_VERSIONS), totalsOf(osVersionsAll), tr('all.headVersion'), tr('common.headVisits'), tr('all.captionOsVersions'))}
     </div>
     <div>
-      <h3>Språk i webbläsaren</h3>
-      ${simpleTable(languagesAll.slice(0, TOP_LANGUAGES), totalsOf(languagesAll), 'Språk', 'Besök', 'Språkinställning i webbläsaren, rangordnad efter antal besök')}
+      <h3>${esc(tr('common.headBrowserLanguages'))}</h3>
+      ${simpleTable(languagesAll.slice(0, TOP_LANGUAGES), totalsOf(languagesAll), tr('common.headLanguage'), tr('common.headVisits'), tr('common.captionLanguages'))}
     </div>
   </div>
 </section>
 
 <section class="card">
-  <h2>Mest besökta sidor</h2>
-  <p class="lead">Sidorna med flest sidvisningar under perioden, tillsammans med vanligaste ingångs- och utgångssidorna.</p>
-  ${rankTable(sortByValue(pageRows.map((r) => ({ label: r.label, value: hits(r) }))).slice(0, TOP_PAGES), pageRows.reduce((s, r) => s + hits(r), 0), { labelHead: 'Sida', valueHead: 'Sidvisningar', caption: 'Mest besökta sidor, rangordnade efter sidvisningar' })}
-  ${entryList.length ? `<h3>Vanligaste ingångssidorna</h3>${simpleTable(entryList, visits, 'Sida', 'Ingångsbesök', 'Vanligaste ingångssidorna med antal ingångsbesök')}` : ''}
-  <h3>Vanligaste utgångssidorna</h3>
+  <h2>${esc(tr('common.sectionTopPages'))}</h2>
+  <p class="lead">${esc(tr('all.leadTopPages'))}</p>
+  ${rankTable(sortByValue(pageRows.map((r) => ({ label: r.label, value: hits(r) }))).slice(0, TOP_PAGES), pageRows.reduce((s, r) => s + hits(r), 0), { labelHead: tr('common.headPage'), valueHead: tr('common.headPageviews'), caption: tr('common.captionTopPages') })}
+  ${entryList.length ? `<h3>${esc(tr('common.headEntryPages'))}</h3>${simpleTable(entryList, visits, tr('common.headPage'), tr('common.headEntryVisits'), tr('common.captionEntryPages'))}` : ''}
+  <h3>${esc(tr('all.headExitPages'))}</h3>
   ${exitTable(exitRows)}
 </section>
 
 <section class="card">
-  <h2>Metod och begränsningar</h2>
+  <h2>${esc(tr('common.sectionMethod'))}</h2>
   <ul>
     ${methodItems.map((t) => `<li>${t}</li>`).join('\n    ')}
   </ul>
@@ -431,7 +453,7 @@ ${kpiGrid(kpis)}
 
 </main>
 <footer>
-  <p>Automatgenererad av <code>build-report-all.mjs</code>.</p>
+  <p>${footerTxt}</p>
 </footer>
 </div>
 </body>
@@ -441,7 +463,7 @@ ${kpiGrid(kpis)}
 // --- Write ---------------------------------------------------------------------
 
 mkdirSync(outDir, { recursive: true });
-const stamp = safe(period.start) && safe(period.end) ? `${safe(period.start)}_${safe(period.end)}` : 'senaste';
+const stamp = safe(period.start) && safe(period.end) ? `${safe(period.start)}_${safe(period.end)}` : safe(tr('all.filenameFallback'));
 const outFile = join(outDir, `${slug}--${stamp}--all.html`);
 writeFileSync(outFile, html);
 

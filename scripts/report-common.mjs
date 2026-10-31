@@ -12,10 +12,35 @@ import { pathToFileURL } from 'node:url';
 import readline from 'node:readline/promises';
 import { inflateSync } from 'node:zlib';
 
+import { setLocale, tr, mapLabel, localeMeta, interpolate } from './locales/index.mjs';
+
+// --- Locale switch ----------------------------------------------------------------
+//
+// Every report is written in one language, chosen by the builder before it
+// renders anything. useLocale() re-creates the module-level formatters for
+// that language; the exports stay `let` so ESM live bindings carry the new
+// formatters to the builders' already-imported names (fmt.format(...) keeps
+// working unchanged). Until useLocale() runs the formatters are Swedish -
+// the language every existing report was written in.
+
+export const useLocale = (code) => {
+  setLocale(code);
+  const { tag, decimalSep } = localeMeta();
+  fmt = new Intl.NumberFormat(tag);
+  fmtPct = new Intl.NumberFormat(tag, { style: 'percent', maximumFractionDigits: 1 });
+  decimalSep_ = decimalSep;
+};
+
 // --- Formatting helpers --------------------------------------------------------
 
-export const fmt = new Intl.NumberFormat('sv-SE');
-export const fmtPct = new Intl.NumberFormat('sv-SE', { style: 'percent', maximumFractionDigits: 1 });
+export let fmt = new Intl.NumberFormat('sv-SE');
+export let fmtPct = new Intl.NumberFormat('sv-SE', { style: 'percent', maximumFractionDigits: 1 });
+// One-decimal numbers with the locale's decimal separator, replacing the
+// per-builder .replace('.', ',') hacks. Kept off Intl on purpose: fmtPct's
+// percent style adds a non-breaking space before % in some locales, and the
+// donut aria labels need the plain separator form.
+let decimalSep_ = ',';
+export const fmtDec1 = (num) => Number(num).toFixed(1).replace('.', decimalSep_);
 export const share = (part, whole) => (whole > 0 ? fmtPct.format(part / whole) : '–');
 
 export const esc = (s) =>
@@ -25,7 +50,9 @@ export const fmtDur = (sec) => {
   const s = Math.round(Number(sec) || 0);
   const m = Math.floor(s / 60);
   const r = s % 60;
-  return m === 0 ? `${r} s` : `${m} min ${String(r).padStart(2, '0')} s`;
+  return m === 0
+    ? tr('common.durSeconds', { s: r })
+    : tr('common.durMinutes', { m, s: String(r).padStart(2, '0') });
 };
 
 export const fmtDate = (iso) => {
@@ -33,7 +60,18 @@ export const fmtDate = (iso) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? iso
-    : d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
+    : d.toLocaleDateString(localeMeta().tag, { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+// The "report generated" timestamp in the meta line; locale-dependent.
+export const fmtDateTime = (d) => d.toLocaleString(localeMeta().tag, { dateStyle: 'long', timeStyle: 'short' });
+
+// Chart x-axis labels stay hand-rolled instead of Intl: the day/month order
+// (1/9 vs 9/1) is a locale convention, not something a date formatter gives
+// us compactly.
+export const shortDay = (iso) => {
+  const [, m, d] = String(iso).split('-');
+  return interpolate(localeMeta().shortDay, { d: Number(d), m: Number(m) });
 };
 
 export const hits = (r) => r.nb_hits ?? r.nb_visits ?? 0;
@@ -93,17 +131,9 @@ export const uniqVisitors = (summary, summaryMonth, period) =>
 
 export const DONUT_COLORS = ['#2f6bb0', '#2e8b7a', '#c98a1b', '#7a8694', '#9a5f8f', '#b0556d'];
 
-export const DEVICE_LABELS_SV = {
-  Desktop: 'Dator',
-  Smartphone: 'Mobil',
-  Mobile: 'Mobil',
-  Tablet: 'Surfplatta',
-  'Feature phone': 'Enklare mobil',
-  Console: 'Konsol',
-  'Smart display': 'Smart skärm',
-  'Portable media player': 'Mediaspelare',
-  Unknown: 'Okänd',
-};
+// Raw values from Matomo (device types, theme values, referrer types) are
+// translated with the current locale's label maps; see mapLabel in
+// scripts/locales/index.mjs. Unmapped values pass through as-is.
 
 // --- HTML atoms -------------------------------------------------------------------
 
@@ -118,18 +148,18 @@ export const barCell = (value, max) => {
 export const tableClass = (rows) => (rows.length > 8 ? ' class="long"' : '');
 
 export const rankTable = (rows, total, opts = {}) => {
-  if (!rows.length) return '<p class="muted">Inga data.</p>';
-  const { labelHead = 'Sida', valueHead = 'Sidvisningar', caption = '' } = opts;
+  if (!rows.length) return `<p class="muted">${esc(tr('common.empty'))}</p>`;
+  const { labelHead = tr('common.headPage'), valueHead = tr('common.headPageviews'), caption = '' } = opts;
   const max = Math.max(...rows.map((r) => r.value), 1);
   return `
 <table${tableClass(rows)}>
-  <caption class="sr-only">${esc(caption || `${labelHead}, rangordnade efter ${valueHead.toLowerCase()}`)}</caption>
+  <caption class="sr-only">${esc(caption || tr('common.captionFallback', { label: labelHead, value: valueHead.toLowerCase() }))}</caption>
   <thead><tr>
     <th scope="col" class="num">#</th>
     <th scope="col">${esc(labelHead)}</th>
     <th scope="col" class="barhead" aria-hidden="true"></th>
     <th scope="col" class="num">${esc(valueHead)}</th>
-    <th scope="col" class="num">Andel</th>
+    <th scope="col" class="num">${esc(tr('common.shareHead'))}</th>
   </tr></thead>
   <tbody>
     ${rows
@@ -149,14 +179,14 @@ export const rankTable = (rows, total, opts = {}) => {
 };
 
 export const simpleTable = (rows, total, labelHead, valueHead, caption) => {
-  if (!rows.length) return '<p class="muted">Inga data.</p>';
+  if (!rows.length) return `<p class="muted">${esc(tr('common.empty'))}</p>`;
   return `
 <table${tableClass(rows)}>
   <caption class="sr-only">${esc(caption)}</caption>
   <thead><tr>
     <th scope="col">${esc(labelHead)}</th>
     <th scope="col" class="num">${esc(valueHead)}</th>
-    <th scope="col" class="num">Andel</th>
+    <th scope="col" class="num">${esc(tr('common.shareHead'))}</th>
   </tr></thead>
   <tbody>
     ${rows
@@ -180,7 +210,7 @@ let chartSeq = 0;
 
 export const donut = (rows) => {
   const total = rows.reduce((s, r) => s + r.value, 0);
-  if (total <= 0) return '<p class="muted">Inga data.</p>';
+  if (total <= 0) return `<p class="muted">${esc(tr('common.empty'))}</p>`;
   const uid = `donut-${++chartSeq}`;
   const R = 52;
   const C = 2 * Math.PI * R;
@@ -189,7 +219,7 @@ export const donut = (rows) => {
     .map((r, i) => {
       const frac = r.value / total;
       const pct = Math.round(frac * 1000) / 10;
-      const seg = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${DONUT_COLORS[i % DONUT_COLORS.length]}" stroke-width="24" stroke-dasharray="${(frac * C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-acc * C).toFixed(2)}" transform="rotate(-90 70 70)" role="img" aria-label="${esc(r.label)}: ${fmt.format(r.value)} (${pct.toString().replace('.', ',')} %)"></circle>`;
+      const seg = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${DONUT_COLORS[i % DONUT_COLORS.length]}" stroke-width="24" stroke-dasharray="${(frac * C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-acc * C).toFixed(2)}" transform="rotate(-90 70 70)" role="img" aria-label="${esc(r.label)}: ${fmt.format(r.value)} (${pct.toString().replace('.', decimalSep_)} %)"></circle>`;
       acc += frac;
       return seg;
     })
@@ -201,11 +231,11 @@ export const donut = (rows) => {
 <div class="donut-wrap">
   <div class="donut-box">
     <svg viewBox="0 0 140 140" width="180" height="180" role="group" aria-labelledby="${uid}-title" aria-describedby="${uid}-desc" focusable="false">
-      <title id="${uid}-title">Fördelning av ${fmt.format(total)} besök</title>
-      <desc id="${uid}-desc">Fördelning mellan ${rows.map((r) => r.label).join(', ')}</desc>
+      <title id="${uid}-title">${esc(tr('common.donutTitle', { total: fmt.format(total) }))}</title>
+      <desc id="${uid}-desc">${esc(tr('common.donutDesc', { labels: rows.map((r) => r.label).join(', ') }))}</desc>
       ${segs}
     </svg>
-    <p class="donut-center" aria-hidden="true"><span class="donut-n">${fmt.format(total)}</span><span class="donut-l">besök</span></p>
+    <p class="donut-center" aria-hidden="true"><span class="donut-n">${fmt.format(total)}</span><span class="donut-l">${esc(tr('common.donutCenter'))}</span></p>
   </div>
   <ul class="legend">
     ${rows
@@ -244,7 +274,7 @@ export const barChart = (rows, opts = {}) => {
   const { labelEvery = 1, caption = '' } = opts;
   const uid = `barchart-${++chartSeq}`;
   const data = rows.filter((r) => r && typeof r.label === 'string');
-  if (!data.length || data.every((r) => !(r.value > 0))) return '<p class="muted">Inga data.</p>';
+  if (!data.length || data.every((r) => !(r.value > 0))) return `<p class="muted">${esc(tr('common.empty'))}</p>`;
   const max = Math.max(...data.map((r) => r.value), 1);
   const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
   const W = 960;
@@ -274,11 +304,11 @@ export const barChart = (rows, opts = {}) => {
     .join('');
   return `
 <div class="chart-wrap">
-  <p class="sr-only">${esc(caption)}${caption ? '. ' : ''}Högst värde: ${esc(peak.label)} med ${fmt.format(peak.value)}.</p>
+  <p class="sr-only">${esc(caption)}${caption ? '. ' : ''}${esc(tr('common.chartPeakSr', { label: peak.label, value: fmt.format(peak.value) }))}</p>
   <div class="chart-box">
     <svg viewBox="0 0 ${W} ${H}" role="group" aria-labelledby="${uid}-title" aria-describedby="${uid}-desc" focusable="false" class="barchart">
-      <title id="${uid}-title">${esc(caption || 'Stapeldiagram')}</title>
-      <desc id="${uid}-desc">${esc(caption)} Högst värde är ${esc(peak.label)} med ${fmt.format(peak.value)}.</desc>
+      <title id="${uid}-title">${esc(caption || tr('common.chartTitleFallback'))}</title>
+      <desc id="${uid}-desc">${esc(caption)} ${esc(tr('common.chartPeakDesc', { label: peak.label, value: fmt.format(peak.value) }))}</desc>
       <line x1="0" y1="${baseline}" x2="${W}" y2="${baseline}" class="chart-axis"></line>
       ${bars}
       ${labels}
@@ -290,15 +320,16 @@ export const barChart = (rows, opts = {}) => {
 
 export const notice = (html) => `<div class="notice">${html}</div>`;
 
-export const kpiGrid = (kpis, label = 'Sammanfattning') => `<section class="kpis" aria-label="${esc(label)}">
+export const kpiGrid = (kpis, label = tr('common.kpiAria')) => `<section class="kpis" aria-label="${esc(label)}">
   ${kpis.map((k) => `<div class="kpi"><div class="n">${k.v}</div><div class="l">${k.l}</div></div>`).join('\n  ')}
 </section>`;
 
 // --- Styles -----------------------------------------------------------------------
 
-// baseCss is shared verbatim by every report. Chart styles live separately so
-// reports without charts do not carry them.
-export const baseCss = `
+// baseCss is shared verbatim by every report; paperSize comes from
+// settings.json ("A4" | "Letter") and sets the print page size. Chart styles
+// live separately so reports without charts do not carry them.
+export const baseCss = (paperSize = 'A4') => `
 :root{
   --bg:#f3f5f8;--card:#fff;--ink:#1c2b39;--muted:#5a6a7a;--line:#dde3ea;
   --accent:#1f5fa8;--accent-deep:#14446f;--bar:#2f6bb0;
@@ -312,7 +343,7 @@ body{margin:0;background:var(--bg);color:var(--ink);
 .masthead{margin:8px 0 20px}
 .kicker{margin:0 0 6px;font-size:.82rem;font-weight:650;letter-spacing:.08em;color:var(--accent-deep)}
 h1{margin:0 0 10px;font-size:clamp(1.6rem,3.5vw,2.3rem);line-height:1.2;color:#132433}
-.meta{margin:0;color:var(--muted);font-size:.85rem}
+.meta{margin:0;color:var(--muted);font-size:.82rem}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:22px 0 6px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
 .kpi .n{font-size:1.7rem;font-weight:650;line-height:1.2;font-variant-numeric:tabular-nums}
@@ -357,7 +388,7 @@ tr.bad .path{color:#8c3a3a;font-weight:600}
 footer{margin-top:34px;color:var(--muted);font-size:.9rem}
 code{background:#eef1f5;border-radius:5px;padding:1px 6px;font-size:.9em}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-@page{size:A4;margin:14mm 12mm}
+@page{size:${paperSize};margin:14mm 12mm}
 @media print{
   body{background:#fff}
   .wrap{max-width:none;padding:0}
@@ -393,11 +424,17 @@ export const chartCss = `
 
 // --- CLI scaffolding ----------------------------------------------------------------
 
+// Report language is chosen with --lang=<code> (single-token form only, so
+// it fans through runAllSites unchanged); the actual validation happens in
+// resolveReportLanguage (scripts/settings.mjs) once the full precedence
+// chain is known.
 export const parseReportArgv = (argv) => {
-  const unknownFlags = argv.filter((a) => a.startsWith('--') && !['--pdf', '--no-pdf'].includes(a));
+  const known = (a) => ['--pdf', '--no-pdf'].includes(a) || a.startsWith('--lang=');
+  const unknownFlags = argv.filter((a) => a.startsWith('--') && !known(a));
   const positional = argv.filter((a) => !a.startsWith('--'));
   const pdfFlag = argv.includes('--pdf') ? true : argv.includes('--no-pdf') ? false : null;
-  return { slug: positional[0], unknownFlags, pdfFlag };
+  const langFlag = argv.find((a) => a.startsWith('--lang='))?.slice('--lang='.length);
+  return { slug: positional[0], unknownFlags, pdfFlag, langFlag };
 };
 
 // The "data available for: …" hint under a usage message.
@@ -410,8 +447,8 @@ export const listAvailableSlugs = (base) => {
 // "all" builds every configured site: this script is re-run once per site
 // config so per-site behavior (data checks, warnings, PDF handling) stays
 // identical to a single build; the PDF question is asked once here and the
-// answer forwarded to every site.
-export async function runAllSites(scriptPath, base, pdfFlag, interactive) {
+// answer, like the language flag, forwarded to every site.
+export async function runAllSites(scriptPath, base, pdfFlag, interactive, langFlag) {
   const configDir = join(base, 'config');
   const slugs = existsSync(configDir)
     ? readdirSync(configDir, { withFileTypes: true })
@@ -427,10 +464,11 @@ export async function runAllSites(scriptPath, base, pdfFlag, interactive) {
   if (pdfFlag !== null) forward = pdfFlag ? '--pdf' : '--no-pdf';
   else if (!interactive) forward = '--no-pdf';
   else forward = (await askPdf()) ? '--pdf' : '--no-pdf';
+  const langArgs = langFlag ? [`--lang=${langFlag}`] : [];
   const failed = [];
   for (const s of slugs) {
     console.log(`\n== ${s} ==`);
-    const r = spawnSync(process.execPath, [scriptPath, s, forward], { stdio: 'inherit' });
+    const r = spawnSync(process.execPath, [scriptPath, s, forward, ...langArgs], { stdio: 'inherit' });
     if (r.status !== 0) failed.push(s);
   }
   console.log();
@@ -564,7 +602,7 @@ export function writePdf(htmlPath, html, pdfOnlyCss = PDF_ONLY_CSS) {
     // html element; this fallback covers callers that omit it. Chrome copies
     // it into the tagged PDF's /Lang entry.
     if (!/<html\b[^>]*\blang\s*=/i.test(pdfHtml)) {
-      pdfHtml = pdfHtml.replace('<html', '<html lang="sv"');
+      pdfHtml = pdfHtml.replace('<html', `<html lang="${localeMeta().htmlLang}"`);
     }
     writeFileSync(src, pdfHtml);
     const run = spawnSync(

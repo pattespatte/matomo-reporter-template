@@ -12,6 +12,10 @@
 #   MATOMO_START / MATOMO_END   range dates (YYYY-MM-DD); sent as the default
 #                               period/date. Needed for data reports, not for
 #                               metadata methods (e.g. SitesManager.*).
+#   REPORT_LANG   report/data language (en|fr|de|es|sv); sent as Matomo's
+#                 language parameter so row labels (countries, referrer
+#                 types, ...) come back localized. No default - when unset
+#                 Matomo answers in the install's default language.
 #   DATA_DIR      output directory (default: data); set by the pull scripts
 #                 to data/<slug>, set it yourself for manual lookups
 #
@@ -45,6 +49,11 @@ params=(
 )
 if [[ -n "${MATOMO_START:-}" && -n "${MATOMO_END:-}" ]]; then
   params+=("period=range" "date=${MATOMO_START},${MATOMO_END}")
+fi
+# An explicit language= in extra params wins: Matomo takes the last
+# occurrence of a repeated parameter (same rule as period=/date= above).
+if [[ -n "${REPORT_LANG:-}" ]]; then
+  params+=("language=${REPORT_LANG}")
 fi
 if (( ${#extra[@]} )); then
   params+=("${extra[@]}")

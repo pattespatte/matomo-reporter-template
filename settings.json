@@ -1,0 +1,22 @@
+{
+  "language": "en",
+  "pdf": {
+    "paper": "Letter"
+  },
+  "topRows": {
+    "pages": 15,
+    "entryPages": 5,
+    "exitPages": 8,
+    "sections": 10,
+    "regions": 8,
+    "resolutions": 8,
+    "browsers": 8,
+    "browserVersions": 8,
+    "operatingSystems": 6,
+    "osVersions": 6,
+    "languages": 5
+  },
+  "footer": {
+    "organization": ""
+  }
+}

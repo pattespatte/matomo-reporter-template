@@ -87,6 +87,19 @@ if [[ -f .secrets/env ]]; then
   source .secrets/env
 fi
 
+# --- report/data language ---------------------------------------------------------
+
+# Same contract as pull_audit.sh: REPORT_LANG exported in the shell wins over
+# settings.json; fetch.sh sends it to Matomo and it is recorded in period.json.
+# shellcheck source=/dev/null
+source scripts/read-settings.sh
+: "${REPORT_LANG:=$(settings_get '.language' 'sv')}"
+case "$REPORT_LANG" in
+  en|fr|de|es|sv) ;;
+  *) echo "ERROR: REPORT_LANG must be one of: en | fr | de | es | sv (got '${REPORT_LANG}')" >&2; exit 1 ;;
+esac
+export REPORT_LANG
+
 # --- date window ----------------------------------------------------------------
 
 if [[ $# -ge 2 ]]; then
@@ -140,8 +153,9 @@ jq -n \
   --arg start "$MATOMO_START" \
   --arg end "$MATOMO_END" \
   --arg pulled_at "$(date +%Y-%m-%dT%H:%M:%S%z)" \
+  --arg language "$REPORT_LANG" \
   --argjson extra_titles "$extra_titles" \
-  '{slug:$slug, domain:$domain, start:$start, end:$end, pulled_at:$pulled_at, extra_not_found_titles:$extra_titles}' \
+  '{slug:$slug, domain:$domain, start:$start, end:$end, pulled_at:$pulled_at, language:$language, extra_not_found_titles:$extra_titles}' \
   > "${DATA_DIR}/period.json"
 
 failed=()
